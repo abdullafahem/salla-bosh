@@ -1,0 +1,93 @@
+# Free hosting: GitHub scrapes the timetable every REFRESH_HOURS hours and
+# publishes the site on GitHub Pages. If a scrape fails, the previous version
+# stays online.
+#
+# REFRESH_HOURS is a repository variable (Settings -> Secrets and variables ->
+# Actions -> Variables). It defaults to 12, like app.py. The workflow wakes up
+# every hour, but only scrapes when the published data is older than that.
+name: Scrape timetable and publish
+
+on:
+  schedule:
+    - cron: "17 * * * *"      # every hour (minute 17 avoids GitHub's busy :00)
+  workflow_dispatch:          # "Run workflow" button in the Actions tab: always scrapes
+  push:
+    branches: [main]          # every push: always scrapes and publishes
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false   # never kill a scrape halfway through
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      scrape: ${{ steps.check.outputs.scrape }}
+    steps:
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Is the published data older than REFRESH_HOURS?
+        id: check
+        env:
+          REFRESH_HOURS: ${{ vars.REFRESH_HOURS || '12' }}
+          EVENT: ${{ github.event_name }}
+          DATA_URL: ${{ steps.pages.outputs.base_url }}/data.json
+        run: |
+          python - <<'EOF'
+          import json, os, urllib.request
+          from datetime import datetime, timezone
+
+          limit = float(os.environ["REFRESH_HOURS"])
+          scrape, why = True, f"triggered by {os.environ['EVENT']}"
+          if os.environ["EVENT"] == "schedule":
+              try:
+                  with urllib.request.urlopen(os.environ["DATA_URL"], timeout=30) as r:
+                      generated = datetime.fromisoformat(json.load(r)["generated_at"])
+                  age = (datetime.now(timezone.utc) - generated).total_seconds() / 3600
+                  scrape = age >= limit - 0.25   # small margin so a 12h limit is not missed by minutes
+                  why = f"published data is {age:.1f} h old, REFRESH_HOURS={limit:g}"
+              except Exception as e:  # nothing published yet, or unreadable
+                  why = f"could not read published data ({e})"
+          print(("Scraping: " if scrape else "Skipping: ") + why)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"scrape={str(scrape).lower()}\n")
+          EOF
+
+      - if: steps.check.outputs.scrape == 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.check.outputs.scrape == 'true'
+        run: pip install requests beautifulsoup4
+
+      - name: Scrape
+        if: steps.check.outputs.scrape == 'true'
+        run: |
+          mkdir -p site
+          cp static/index.html site/
+          ORARI_OUT=site/data.json python scraper.py
+
+      - if: steps.check.outputs.scrape == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.scrape == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

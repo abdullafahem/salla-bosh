@@ -1,0 +1,7 @@
+{
+  "lab_keywords": ["lab"],
+  "ignore": ["Online", "Zoom"],
+  "aliases": {},
+  "extra_patterns": [],
+  "bare_codes": true
+}

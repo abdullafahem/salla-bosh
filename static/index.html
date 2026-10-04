@@ -88,7 +88,7 @@ section.group p.sub{margin:0 0 14px;color:var(--muted);font-size:.9rem}
 .notice{padding:18px 20px;border-radius:4px;background:var(--surface);border:1px solid var(--line);margin-top:24px}
 .notice h2{font:800 1.3rem var(--display);margin:0 0 6px}
 :focus-visible{outline:3px solid var(--lab);outline-offset:2px}
-@media (max-width:560px){.clock{gap:6px}.summary{padding-bottom:0}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.room{padding:10px 11px}.room .name{font-size:1.05rem;flex-direction:column;align-items:flex-start;gap:4px}}
+@media (max-width:560px){.clock{gap:6px}.summary{padding-bottom:0}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.room{padding:10px 11px}.room[aria-expanded=true]{grid-column:1/-1}.room[aria-expanded=true] .name{font-size:1.25rem;flex-direction:row;align-items:baseline}.room .name{font-size:1.05rem;flex-direction:column;align-items:flex-start;gap:4px}}
 @media (prefers-reduced-motion:no-preference){.room{transition:border-color .15s}}
 </style>
 </head>
@@ -195,7 +195,8 @@ function bind(){
   $("#search").addEventListener("input", e => { S.q=e.target.value.trim().toLowerCase(); render(); });
   $("#showBusy").addEventListener("change", e => { S.showBusy=e.target.checked; render(); });
   $("#results").addEventListener("click", e => { const b=e.target.closest(".room"); if(!b) return;
-    const n=b.dataset.room; S.open.has(n)?S.open.delete(n):S.open.add(n); b.setAttribute("aria-expanded", S.open.has(n)); });
+    const n=b.dataset.room; S.open.has(n)?S.open.delete(n):S.open.add(n); b.setAttribute("aria-expanded", S.open.has(n));
+    if(S.open.has(n)) b.scrollIntoView({block:"nearest", behavior:"smooth"}); });
 }
 
 async function refresh(){

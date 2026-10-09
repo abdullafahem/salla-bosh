@@ -127,6 +127,9 @@ ROOM_PATTERNS = [
     # Salla 205, Klasa 3, Aula B2, Auditori 1, Aud. A
     (re.compile(r"\b(salla|salle|klasa|aula|auditori(?:um|t)?|aud)\.?\s*[:.]?\s*(" + ID + r"|[A-Z]{1,2})(?![\w])", re.I), "salla"),
 ]
+# the uni site writes the room field as "Klasa (118A)", "Klasa (204/1C)", "Klasa (KlasaD6)", "Klasa (Lab 28)"
+PAREN_RE = re.compile(r"\b(?:klasa|salla|ambienti)\s*\(\s*([^()]+?)\s*\)", re.I)
+CODE_RE = re.compile(r"[A-Za-z]?\d{1,3}(?:/\d{1,2})?[A-Za-z]?")
 LABEL_RE = re.compile(r"(?:salla|klasa|ambienti|auditori|room)\s*:\s*([^\n,;|]+)", re.I)
 BARE_RE = re.compile(r"(?<![A-Za-z0-9])([A-Z]{1,2}\s?-?\d{2,3}[A-Za-z]?)(?![A-Za-z0-9])")
 
@@ -169,6 +172,21 @@ def rooms_in_text(text: str):
         for m in re.finditer(pat, text, re.I):
             found.append((m.group(1) if m.groups() else m.group(0), m.group(0)))
     if not found:
+        parens = list(PAREN_RE.finditer(text))
+        for m in parens:
+            inner = m.group(1)
+            if CODE_RE.fullmatch(inner):  # bare code: 118A -> "Klasa 118A"
+                found.append(("Klasa " + inner.upper(), m.group(0)))
+                continue
+            for pat, _kind in ROOM_PATTERNS:
+                sub = pat.search(inner)
+                if sub:
+                    found.append((canon_room(sub.group(1), sub.group(2)), m.group(0)))
+                    break
+            # anything else ("Klasa (Lab)" without a number) names no specific room
+        if parens:  # the room field was present: don't guess from the rest of the cell
+            return _dedupe(found)
+    if not found:
         for pat, _kind in ROOM_PATTERNS:
             for m in pat.finditer(text):
                 if any(m.group(0) in f[1] or f[1] in m.group(0) for f in found):
@@ -180,6 +198,10 @@ def rooms_in_text(text: str):
     if not found and CFG.get("bare_codes", True):
         for m in BARE_RE.finditer(text):
             found.append((m.group(1).replace(" ", ""), m.group(0)))
+    return _dedupe(found)
+
+
+def _dedupe(found):
     out, seen = [], set()
     for name, span in found:
         name = finalize_room(name)
